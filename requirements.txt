@@ -1,0 +1,17 @@
+# core (cloud GPU box). Install torch first, matched to the box's CUDA:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+torch>=2.4
+torchvision>=0.19
+numpy>=1.24
+opencv-python-headless>=4.9
+PyYAML>=6.0
+tqdm>=4.66
+# serving
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+pillow>=10.2
+# export / storage
+onnx>=1.15
+onnxruntime>=1.17        # optional, for verifying the exported graph
+pyarrow>=15.0            # parquet embedding dumps

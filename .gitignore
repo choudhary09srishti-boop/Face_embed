@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+runs/
+data/
+weights/
+*.onnx
+*.pt
+*.pth
+*.npz
+*.parquet
+.ipynb_checkpoints/

@@ -1,0 +1,20 @@
+_base_: embedding_mbf.yaml
+
+model:
+  name: iresnet50
+  dropout: 0.1
+
+head:
+  scale: 64.0
+
+data:
+  index_cache: runs/r50/index.json
+
+optim:
+  lr: 0.1
+  warmup_steps: 2000
+
+train:
+  out_dir: runs/r50
+  epochs: 40
+  batch_size: 96          # ~16GB VRAM at 112x112 with AMP; halve for a T4

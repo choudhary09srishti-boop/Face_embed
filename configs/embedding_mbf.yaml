@@ -1,0 +1,56 @@
+seed: 42
+
+model:
+  name: mobilefacenet      # mobilefacenet | iresnet18/34/50/100
+  embedding_dim: 512
+  input_size: 112
+  dropout: 0.0
+  width: 1.0
+  use_se: false
+  fp16_backbone: false
+
+head:
+  name: arcface            # arcface | cosface | sphereface | normface | combined | linear
+  scale: 32.0              # lower s for small datasets; 64 is for 100k+ identities
+  sub_centers: 1           # 3 helps when labels are noisy
+  interclass_filtering: 0.0
+  margin_warmup_steps: 1000
+
+data:
+  root: data/aligned       # <root>/<identity>/*.jpg, already aligned 112x112
+  augment: medium          # none | light | medium | heavy
+  min_images: 2
+  max_images: null
+  num_workers: 8
+  index_cache: runs/mbf/index.json
+  holdout_frac: 0.1        # identities held out for verification eval
+  num_pairs: 6000
+  pairs_file: null         # set to reuse a fixed pair list
+  pk_sampler: false
+  images_per_identity: 4
+
+optim:
+  name: sgd
+  lr: 0.1                  # per-GPU; scaled by world size when scale_lr
+  scale_lr: true
+  momentum: 0.9
+  weight_decay: 0.0005
+  head_weight_decay: 0.0005
+  schedule: cosine         # cosine | poly | step | none
+  warmup_steps: 1000
+  min_lr_ratio: 0.001
+
+train:
+  out_dir: runs/mbf
+  epochs: 30
+  batch_size: 128
+  amp: true
+  ema: true
+  ema_decay: 0.9999
+  criterion: ce
+  label_smoothing: 0.0
+  grad_clip: 5.0
+  log_every: 50
+  eval_every_epochs: 1
+  eval_batch_size: 64
+  resume: null
