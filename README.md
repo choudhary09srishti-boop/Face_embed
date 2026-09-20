@@ -175,3 +175,5 @@ output `embedding`, already L2-normalised.
 4. **Comparing un-normalised embeddings.** The pipeline normalises; if you touch raw
    backbone output, normalise it yourself.
 5. **Too few identities.** No amount of training fixes it — see the table in step 1.
+
+6. image Dataset https://www.kaggle.com/datasets/kaustubhdhote/human-faces-dataset
