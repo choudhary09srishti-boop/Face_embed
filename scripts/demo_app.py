@@ -2,6 +2,12 @@
 
 Run from the repo root:  uvicorn scripts.demo_app:app --port 8000
 Then open http://localhost:8000
+
+DETECTOR env var:
+  haar_crop (default) - uncropped photos: Haar detect -> margin-1.7 crop -> embed
+  whole               - photos are already tight face crops (LFW-style)
+MIN_REL_AREA env var: drop faces smaller than this fraction of the largest face
+in the same photo (filters Haar false positives). Default 0.5.
 """
 from __future__ import annotations
 
@@ -22,9 +28,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from facelib.data.dataset import IMG_EXTS
 from facelib.pipeline.embedder import FaceEmbedder
+from facelib.pipeline.haar_crop import HaarCropEmbedder
 
 CHECKPOINT = os.environ.get("EMBED_CHECKPOINT", "runs/mbf2/best.pt")
-DETECTOR = os.environ.get("DETECTOR", "whole")  # "whole" = photos are already face crops
+DETECTOR = os.environ.get("DETECTOR", "haar_crop")
+MIN_REL_AREA = float(os.environ.get("MIN_REL_AREA", "0.5"))
 DATA_DIR = Path(os.environ.get("DEMO_DATA", "data/app"))
 PHOTOS = DATA_DIR / "photos"
 INDEX_NPZ = DATA_DIR / "index.npz"
@@ -32,11 +40,25 @@ INDEX_JSON = DATA_DIR / "index.json"
 UI_FILE = Path(__file__).with_name("demo_ui.html")
 
 PHOTOS.mkdir(parents=True, exist_ok=True)
-embedder = FaceEmbedder(CHECKPOINT, detector=DETECTOR, flip_tta=True)
+embedder = FaceEmbedder(CHECKPOINT, detector="whole", flip_tta=True)
+engine = HaarCropEmbedder(embedder) if DETECTOR == "haar_crop" else embedder
 lock = threading.Lock()
 
 emb = np.zeros((0, embedder.embedding_dim), dtype=np.float32)
 names: list[str] = []  # names[i] = image filename that embedding row i came from
+
+
+def _area(face) -> float:
+    b = face.bbox
+    return float((b[2] - b[0]) * (b[3] - b[1]))
+
+
+def filter_faces(faces: list) -> list:
+    """Keep faces at least MIN_REL_AREA x the largest face (drops false positives)."""
+    if len(faces) <= 1:
+        return faces
+    biggest = max(_area(f) for f in faces)
+    return [f for f in faces if _area(f) >= MIN_REL_AREA * biggest]
 
 
 def load_index() -> None:
@@ -87,7 +109,7 @@ def upload(files: list[UploadFile] = File(...)):
             dest = PHOTOS / name
             dest.write_bytes(f.file.read())
             try:
-                faces = embedder.embed_path(dest)
+                faces = filter_faces(engine.embed_path(dest))
             except Exception:
                 faces = []
             if not faces:
@@ -125,7 +147,7 @@ def groups(distance: float = 0.70):
 
 
 @app.post("/search")
-def search(file: UploadFile = File(...), threshold: float = 0.50):
+def search(file: UploadFile = File(...), threshold: float = 0.60):
     """Upload one face; returns the stored photos of the same person (no scores)."""
     data = np.frombuffer(file.file.read(), dtype=np.uint8)
     img = cv2.imdecode(data, cv2.IMREAD_COLOR)
@@ -133,7 +155,7 @@ def search(file: UploadFile = File(...), threshold: float = 0.50):
         raise HTTPException(400, "could not read the image")
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     with lock:
-        face = embedder.embed_largest_face(img)
+        face = engine.embed_largest_face(img)
         if face is None:
             raise HTTPException(422, "no face found in the query photo")
         if len(names) == 0:
