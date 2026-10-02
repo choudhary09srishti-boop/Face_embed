@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face Grouping &amp; Search</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#ffffff; --ink:#1c2230; --muted:#6b7385; --line:#e2e5ec; --accent:#2f5bea; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Segoe UI", Arial, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:16px 28px; background:var(--card); border-bottom:1px solid var(--line);
+           display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  h1 { font-size:20px; margin:0; }
+  #stats { color:var(--muted); font-size:14px; }
+  main { max-width:1100px; margin:0 auto; padding:24px 20px 60px; display:grid; gap:20px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
+  h2 { font-size:16px; margin:0 0 4px; }
+  p.hint { margin:0 0 14px; color:var(--muted); font-size:13px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:14px; cursor:pointer; }
+  button.secondary { background:#eef0f5; color:var(--ink); }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=number] { width:80px; padding:8px; border:1px solid var(--line); border-radius:8px; }
+  .msg { font-size:14px; color:var(--muted); margin-top:10px; min-height:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:8px; margin-top:12px; }
+  .grid img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px; border:1px solid var(--line); background:#eee; }
+  .group { border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:12px; }
+  .group h3 { margin:0; font-size:14px; }
+  .query { width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid var(--line); margin-top:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Face Grouping &amp; Search</h1>
+  <div class="row"><span id="stats"></span><button class="secondary" id="resetBtn">Clear all</button></div>
+</header>
+<main>
+  <section>
+    <h2>1. Upload photos</h2>
+    <p class="hint">Select many photos at once (Ctrl+A in the file dialog). Photos with the same person will be grouped in step 2.</p>
+    <div class="row">
+      <input type="file" id="uploadFiles" accept="image/*" multiple>
+      <button id="uploadBtn">Upload</button>
+    </div>
+    <div class="msg" id="uploadMsg"></div>
+  </section>
+
+  <section>
+    <h2>2. Group by person</h2>
+    <p class="hint">Lower distance = stricter grouping (fewer wrong merges, more split groups).</p>
+    <div class="row">
+      <label>Distance <input type="number" id="distance" value="0.70" step="0.05" min="0.3" max="1.0"></label>
+      <label><input type="checkbox" id="multiOnly"> only groups with 2+ photos</label>
+      <button id="groupBtn">Group photos</button>
+    </div>
+    <div class="msg" id="groupMsg"></div>
+    <div id="groups"></div>
+  </section>
+
+  <section>
+    <h2>3. Search for a person</h2>
+    <p class="hint">Upload one face to see whether that person exists in the uploaded photos.</p>
+    <div class="row">
+      <input type="file" id="searchFile" accept="image/*">
+      <button id="searchBtn">Search</button>
+    </div>
+    <div class="msg" id="searchMsg"></div>
+    <div id="searchOut"></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const photoUrl = n => "/photos/" + encodeURIComponent(n);
+
+function thumbs(names) {
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  names.forEach(n => {
+    const im = document.createElement("img");
+    im.src = photoUrl(n);
+    im.title = n;
+    im.loading = "lazy";
+    grid.appendChild(im);
+  });
+  return grid;
+}
+
+async function refreshStats() {
+  try {
+    const h = await (await fetch("/health")).json();
+    $("stats").textContent = h.photos + " photos · " + h.faces + " faces indexed";
+  } catch (e) {
+    $("stats").textContent = "server not reachable";
+  }
+}
+
+$("uploadBtn").onclick = async () => {
+  const files = [...$("uploadFiles").files];
+  if (!files.length) { $("uploadMsg").textContent = "Choose some photos first."; return; }
+  $("uploadBtn").disabled = true;
+  let added = 0, noFace = 0;
+  for (let i = 0; i < files.length; i += 20) {
+    const fd = new FormData();
+    files.slice(i, i + 20).forEach(f => fd.append("files", f));
+    $("uploadMsg").textContent = "Uploading " + Math.min(i + 20, files.length) + " / " + files.length + " ...";
+    const r = await fetch("/upload", { method: "POST", body: fd });
+    if (!r.ok) {
+      $("uploadMsg").textContent = "Upload failed (HTTP " + r.status + ").";
+      $("uploadBtn").disabled = false;
+      return;
+    }
+    const d = await r.json();
+    added += d.added;
+    noFace += d.no_face.length;
+  }
+  $("uploadMsg").textContent = "Done: " + added + " photos added" +
+    (noFace ? ", " + noFace + " had no usable face" : "") + ".";
+  $("uploadBtn").disabled = false;
+  refreshStats();
+};
+
+$("groupBtn").onclick = async () => {
+  $("groupMsg").textContent = "Grouping ...";
+  const d = await (await fetch("/groups?distance=" + encodeURIComponent($("distance").value))).json();
+  const multiOnly = $("multiOnly").checked;
+  const list = d.groups.filter(g => !multiOnly || g.photos.length > 1);
+  const box = $("groups");
+  box.innerHTML = "";
+  list.forEach((g, i) => {
+    const card = document.createElement("div");
+    card.className = "group";
+    const title = document.createElement("h3");
+    title.textContent = "Person " + (i + 1) + " · " + g.photos.length + " photo" + (g.photos.length === 1 ? "" : "s");
+    card.appendChild(title);
+    card.appendChild(thumbs(g.photos));
+    box.appendChild(card);
+  });
+  $("groupMsg").textContent = d.groups.length + " groups from " + d.num_photos + " photos" +
+    (multiOnly ? " (" + list.length + " with 2+ photos shown)" : "");
+};
+
+$("searchBtn").onclick = async () => {
+  const f = $("searchFile").files[0];
+  if (!f) { $("searchMsg").textContent = "Choose a face photo first."; return; }
+  const out = $("searchOut");
+  out.innerHTML = "";
+  $("searchMsg").textContent = "Searching ...";
+  const fd = new FormData();
+  fd.append("file", f);
+  const r = await fetch("/search", { method: "POST", body: fd });
+  const q = document.createElement("img");
+  q.className = "query";
+  q.src = URL.createObjectURL(f);
+  out.appendChild(q);
+  if (!r.ok) {
+    let detail = "Search failed.";
+    try { detail = (await r.json()).detail || detail; } catch (e) {}
+    $("searchMsg").textContent = detail;
+    return;
+  }
+  const d = await r.json();
+  if (d.found) {
+    $("searchMsg").textContent = "Found in " + d.count + " photo" + (d.count === 1 ? "" : "s") + ".";
+    out.appendChild(thumbs(d.matches));
+  } else {
+    $("searchMsg").textContent = "No matching person found in the database.";
+  }
+};
+
+$("resetBtn").onclick = async () => {
+  if (!confirm("Delete all uploaded photos and the index?")) return;
+  await fetch("/reset", { method: "POST" });
+  $("groups").innerHTML = "";
+  $("searchOut").innerHTML = "";
+  $("groupMsg").textContent = "";
+  $("searchMsg").textContent = "";
+  $("uploadMsg").textContent = "";
+  refreshStats();
+};
+
+refreshStats();
+</script>
+</body>
+</html>
