@@ -177,3 +177,6 @@ output `embedding`, already L2-normalised.
 5. **Too few identities.** No amount of training fixes it — see the table in step 1.
 
 6. image Dataset https://www.kaggle.com/datasets/kaustubhdhote/human-faces-dataset
+
+
+Demo (group photos by person + search by face): see [DEMO.md](DEMO.md).
